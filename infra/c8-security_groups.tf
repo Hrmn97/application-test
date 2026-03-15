@@ -19,5 +19,13 @@ resource "aws_security_group" "notification" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  egress {
+    from_port   = 27017
+    to_port     = 27017
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "MongoDB Atlas"
+  }
+
   tags = local.common_tags
 }
