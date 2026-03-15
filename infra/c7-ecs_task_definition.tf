@@ -97,7 +97,7 @@ resource "aws_ecs_task_definition" "notification" {
     secrets = [
       {
         name      = "MONGODB_URI"
-        valueFrom = "${var.mongodb_secret_arn}:MONGODB_URI::"
+        valueFrom = var.mongodb_secret_arn
       }
     ]
 
