@@ -1,7 +1,7 @@
 name: 3 - Terraform Destroy
 
 on:
-  workflow_dispatch:    # MANUAL ONLY — never runs automatically
+  workflow_dispatch:
 
 jobs:
   destroy:
@@ -26,6 +26,26 @@ jobs:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Delete all ECR images
+        run: |
+          # Get all image digests in the repo and delete them all
+          # Using digests instead of tags catches untagged images too
+          IMAGE_IDS=$(aws ecr list-images \
+            --repository-name production-notification-service \
+            --region ${{ secrets.AWS_REGION }} \
+            --query 'imageIds[*]' \
+            --output json)
+
+          if [ "$IMAGE_IDS" = "[]" ]; then
+            echo "No images to delete"
+          else
+            aws ecr batch-delete-image \
+              --repository-name production-notification-service \
+              --image-ids "$IMAGE_IDS" \
+              --region ${{ secrets.AWS_REGION }}
+            echo "All images deleted"
+          fi
 
       - name: Terraform Init
         run: terraform init
