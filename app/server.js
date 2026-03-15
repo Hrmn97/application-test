@@ -8,7 +8,7 @@ require("dotenv").config();
 const app = express();
 app.use(express.json());
 
-const uri = process.env.MONGO_URI;
+const uri = process.env.MONGODB_URI;
 console.log("Mongo URI loaded");
 
 const client = new MongoClient(uri);
