@@ -1,0 +1,59 @@
+name: 2 - Docker Build & Deploy
+
+on:
+  workflow_dispatch:    # ← MANUAL ONLY — triggered from GitHub Actions UI
+
+jobs:
+  build-and-deploy:
+    name: Build, Push, Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Read terraform outputs from S3 state (no re-apply) ──────────────
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Read Terraform outputs into env
+        working-directory: infra
+        run: |
+          terraform init -input=false
+          echo "ECR_REPOSITORY=$(terraform output -raw ecr_repository_name)"            >> $GITHUB_ENV
+          echo "ECR_REPOSITORY_URI=$(terraform output -raw ecr_repository_uri)"          >> $GITHUB_ENV
+          echo "ECS_SERVICE=$(terraform output -raw ecs_service_name)"                   >> $GITHUB_ENV
+          echo "ECS_CLUSTER=$(terraform output -raw ecs_cluster_id)"                     >> $GITHUB_ENV
+          echo "ECS_TASK_DEFINITION=$(terraform output -raw ecs_task_definition_family)" >> $GITHUB_ENV
+          echo "CONTAINER_NAME=$(terraform output -raw container_name)"                  >> $GITHUB_ENV
+          echo "AWS_REGION=$(terraform output -raw aws_region)"                          >> $GITHUB_ENV
+
+      # ── Docker build & push ──────────────────────────────────────────────
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+            | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY_URI }}
+
+      - name: Build & push Docker image
+        working-directory: app           # ← Dockerfile lives here
+        run: |
+          IMAGE_TAG=${{ github.sha }}
+          docker build -t ${{ env.ECR_REPOSITORY_URI }}:$IMAGE_TAG \
+                       -t ${{ env.ECR_REPOSITORY_URI }}:latest .
+          docker push ${{ env.ECR_REPOSITORY_URI }}:$IMAGE_TAG
+          docker push ${{ env.ECR_REPOSITORY_URI }}:latest
+
+      # ── Force ECS to pick up the new image ──────────────────────────────
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster  ${{ env.ECS_CLUSTER }} \
+            --service  ${{ env.ECS_SERVICE }} \
+            --force-new-deployment \
+            --region   ${{ env.AWS_REGION }}
