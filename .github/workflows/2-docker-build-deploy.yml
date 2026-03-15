@@ -1,28 +1,32 @@
 name: 2 - Docker Build & Deploy
 
 on:
-  workflow_dispatch:    # ← MANUAL ONLY — triggered from GitHub Actions UI
+  workflow_dispatch:    # MANUAL ONLY — trigger from Actions UI after terraform apply
 
 jobs:
   build-and-deploy:
-    name: Build, Push, Deploy
+    name: Build, Push & Deploy to ECS
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # ── Read terraform outputs from S3 state (no re-apply) ──────────────
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ secrets.AWS_REGION }}
 
-      - name: Read Terraform outputs into env
+      # Read outputs from the S3 state file — no re-apply needed
+      # terraform init just connects to the S3 backend, terraform output reads state
+      - name: Read Terraform outputs
         working-directory: infra
         run: |
           terraform init -input=false
@@ -32,28 +36,36 @@ jobs:
           echo "ECS_CLUSTER=$(terraform output -raw ecs_cluster_id)"                     >> $GITHUB_ENV
           echo "ECS_TASK_DEFINITION=$(terraform output -raw ecs_task_definition_family)" >> $GITHUB_ENV
           echo "CONTAINER_NAME=$(terraform output -raw container_name)"                  >> $GITHUB_ENV
-          echo "AWS_REGION=$(terraform output -raw aws_region)"                          >> $GITHUB_ENV
+          echo "AWS_REGION_OUT=$(terraform output -raw aws_region)"                      >> $GITHUB_ENV
 
-      # ── Docker build & push ──────────────────────────────────────────────
-      - name: Login to ECR
+      - name: Login to Amazon ECR
         run: |
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+          aws ecr get-login-password --region ${{ env.AWS_REGION_OUT }} \
             | docker login --username AWS --password-stdin ${{ env.ECR_REPOSITORY_URI }}
 
       - name: Build & push Docker image
-        working-directory: app           # ← Dockerfile lives here
+        working-directory: app
         run: |
           IMAGE_TAG=${{ github.sha }}
-          docker build -t ${{ env.ECR_REPOSITORY_URI }}:$IMAGE_TAG \
-                       -t ${{ env.ECR_REPOSITORY_URI }}:latest .
-          docker push ${{ env.ECR_REPOSITORY_URI }}:$IMAGE_TAG
+          docker build \
+            -t ${{ env.ECR_REPOSITORY_URI }}:${IMAGE_TAG} \
+            -t ${{ env.ECR_REPOSITORY_URI }}:latest .
+          docker push ${{ env.ECR_REPOSITORY_URI }}:${IMAGE_TAG}
           docker push ${{ env.ECR_REPOSITORY_URI }}:latest
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
 
-      # ── Force ECS to pick up the new image ──────────────────────────────
-      - name: Deploy to ECS
+      - name: Force new ECS deployment
         run: |
           aws ecs update-service \
-            --cluster  ${{ env.ECS_CLUSTER }} \
-            --service  ${{ env.ECS_SERVICE }} \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
             --force-new-deployment \
-            --region   ${{ env.AWS_REGION }}
+            --region  ${{ env.AWS_REGION_OUT }}
+
+      - name: Wait for ECS service to stabilise
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }} \
+            --region  ${{ env.AWS_REGION_OUT }}
+          echo "✅ Deployed image ${{ env.IMAGE_TAG }} — service is stable"

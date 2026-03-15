@@ -2,9 +2,9 @@ name: 1 - Terraform Apply
 
 on:
   push:
-    branches: [master]
-    paths: ['infra/**']        # only runs when infra changes
-  workflow_dispatch:           # also manually triggerable
+    branches: [main]
+    paths: ['infra/**']       # only fires when infra files change
+  workflow_dispatch:          # also manually triggerable from Actions UI
 
 jobs:
   terraform:
@@ -12,23 +12,35 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: infra   # ← all terraform commands run from here
+        working-directory: infra  # all terraform commands run from infra/
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ secrets.AWS_REGION }}
 
-      - run: terraform init
-      - run: terraform fmt -check
-      - run: terraform validate
-      - run: terraform plan
-      - run: terraform apply -auto-approve
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
