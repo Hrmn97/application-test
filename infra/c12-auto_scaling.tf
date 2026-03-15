@@ -52,6 +52,6 @@ resource "aws_appautoscaling_policy" "notification_cpu" {
     predefined_metric_specification {
       predefined_metric_type = "ECSServiceAverageCPUUtilization"
     }
-    target_value = 70.0  # 95 is too high — scale before you're already on fire
+    target_value = 70.0 # 95 is too high — scale before you're already on fire
   }
 }
