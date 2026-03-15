@@ -8,6 +8,9 @@ require("dotenv").config();
 const app = express();
 app.use(express.json());
 
+// ALB health check
+app.get("/", (req, res) => res.status(200).json({ status: "ok" }));
+
 const uri = process.env.MONGODB_URI;
 console.log("Mongo URI loaded");
 
