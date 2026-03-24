@@ -82,7 +82,7 @@ app.delete("/users/:id", async (req, res) => {
   }
 });
 
-/* ---------------- SERVER START ---------------- */
+/* ---------------- SERVER START FINAL---------------- */
 
 async function startServer() {
   try {
